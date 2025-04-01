@@ -128,7 +128,7 @@ defmodule Astarte.Core.Generators.Interface do
           allow_unset <- gen_param(MappingGenerator.allow_unset(), :allow_unset, params),
           explicit_timestamp <-
             gen_param(MappingGenerator.explicit_timestamp(), :explicit_timestamp, params),
-          mappings_args = %{
+          mappings_args = [
             aggregation: aggregation,
             prefix: prefix,
             retention: retention,
@@ -136,7 +136,7 @@ defmodule Astarte.Core.Generators.Interface do
             expiry: expiry,
             allow_unset: allow_unset,
             explicit_timestamp: explicit_timestamp
-          },
+          ],
           mappings <- gen_param(mappings(mappings_args), :mappings, params)
         ) do
       %{

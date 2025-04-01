@@ -26,23 +26,18 @@ defmodule Astarte.Core.Generators.Mapping do
 
   alias Astarte.Core.Mapping
 
+  import ParameterizedStreams
+
   @doc """
   Generates a Mapping struct.
   See https://docs.astarte-platform.org/astarte/latest/040-interface_schema.html#mapping
   """
-  @spec mapping(%{
-          :aggregation => :individual | :object,
-          :allow_unset => boolean(),
-          :expiry => non_neg_integer(),
-          :explicit_timestamp => boolean(),
-          :prefix => String.t(),
-          :reliability => :unreliable | :guaranteed | :unique,
-          optional(:retention) => :discard | :volatile | :stored
-        }) :: StreamData.t(Mapping.t())
-  def mapping(config) do
+  @spec mapping() :: StreamData.t(Mapping.t())
+  @spec mapping(keyword()) :: StreamData.t(Mapping.t())
+  def mapping(params \\ []) do
     gen all(
-          required <- required_fields(config),
-          optional <- optional_fields(config)
+          required <- required_fields(params),
+          optional <- optional_fields(params)
         ) do
       struct(Mapping, Map.merge(required, optional))
     end
@@ -104,32 +99,47 @@ defmodule Astarte.Core.Generators.Mapping do
 
   defp doc, do: string(:ascii, min_length: 1, max_length: 100_000)
 
-  defp required_fields(%{
-         aggregation: aggregation,
-         prefix: prefix,
-         retention: retention,
-         reliability: reliability,
-         explicit_timestamp: explicit_timestamp,
-         allow_unset: allow_unset,
-         expiry: expiry
-       }) do
-    fixed_map(%{
-      endpoint: endpoint(aggregation, prefix),
-      type: type(),
-      retention: constant(retention),
-      reliability: constant(reliability),
-      explicit_timestamp: constant(explicit_timestamp),
-      allow_unset: constant(allow_unset),
-      expiry: constant(expiry)
-    })
+  defp required_fields(params) do
+    prefix = Keyword.get(params, :prefix, "")
+
+    gen all aggregation <- gen_param(aggregation(), :aggregation, params),
+            retention <- gen_param(one_of([retention(), constant(nil)]), :retention, params),
+            reliability <- gen_param(reliability(), :reliability, params),
+            explicit_timestamp <- gen_param(explicit_timestamp(), :explicit_timestamp, params),
+            allow_unset <- gen_param(allow_unset(), :allow_unset, params),
+            expiry <- gen_param(expiry(), :expiry, params),
+            endpoint <- gen_param(endpoint(aggregation, prefix), :endpoint, params),
+            type <- gen_param(type(), :type, params) do
+      %{
+        endpoint: endpoint,
+        type: type,
+        retention: retention,
+        reliability: reliability,
+        explicit_timestamp: explicit_timestamp,
+        allow_unset: allow_unset,
+        expiry: expiry
+      }
+    end
   end
 
-  defp optional_fields(_config) do
-    optional_map(%{
-      database_retention_policy: database_retention_policy(),
-      database_retention_ttl: database_retention_ttl(),
-      description: description(),
-      doc: doc()
-    })
+  defp optional_fields(params) do
+    gen all database_retention_policy <-
+              gen_param(optional(database_retention_policy()), :database_retention_policy, params),
+            database_retention_ttl <-
+              gen_param(optional(database_retention_ttl()), :database_retention_ttl, params),
+            description <- gen_param(optional(description()), :description, params),
+            doc <- gen_param(optional(doc()), :doc, params) do
+      %{
+        database_retention_policy: database_retention_policy,
+        database_retention_ttl: database_retention_ttl,
+        description: description,
+        doc: doc
+      }
+    end
   end
+
+  # TODO: use Interface.aggregation once we make it public
+  defp aggregation, do: member_of([:individual, :object])
+
+  defp optional(generator), do: one_of([generator, constant(nil)])
 end
