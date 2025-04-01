@@ -24,6 +24,10 @@ defmodule Astarte.Core.Generators.Group do
   """
   use ExUnitProperties
 
+  alias Astarte.Core.Generators.Device
+
+  import ParameterizedStreams
+
   @max_subpath_count 10
   @max_subpath_length 20
 
@@ -40,14 +44,12 @@ defmodule Astarte.Core.Generators.Group do
     end)
   end
 
-  @spec group([{:devices, any()}, ...]) :: StreamData.t(map())
-  def group(devices: devices) do
+  @spec group() :: StreamData.t(map())
+  @spec group(keyword()) :: StreamData.t(map())
+  def group(params \\ []) do
     gen all(
-          name <- name(),
-          device_ids <-
-            devices
-            |> Enum.map(fn i -> i.device_id end)
-            |> constant()
+          name <- gen_param(name(), :name, params),
+          device_ids <- gen_param(uniq_list_of(Device.id()), :device_ids, params)
         ) do
       %{
         name: name,
