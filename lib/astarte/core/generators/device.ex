@@ -27,35 +27,45 @@ defmodule Astarte.Core.Generators.Device do
   alias Astarte.Common.Generators.Ip, as: IpGenerator
   alias Astarte.Common.Generators.Timestamp, as: TimestampGenerator
   alias Astarte.Core.Device
-  alias Astarte.Core.Interface
+  alias Astarte.Core.Generators.Interface, as: InterfaceGenerator
+
+  import ParameterizedStreams
 
   @doc """
   Generates a valid Astarte Device with pre-created interfaces_bytes
   TODO: using `ecto_strea_factory` in the future
   """
-  @spec device(interfaces: [Interface.t()]) :: StreamData.t(map())
-  def device(interfaces: interfaces) do
-    gen all id <- id(),
-            last_seen_ip <- IpGenerator.ip(:ipv4),
-            last_credentials_request_ip <- IpGenerator.ip(:ipv4),
-            inhibit_credentials_request <- boolean(),
+  @spec device() :: StreamData.t(map())
+  @spec device(keyword()) :: StreamData.t(map())
+  def device(params \\ []) do
+    gen all id <- gen_param(id(), :id, params),
+            last_seen_ip <- gen_param(IpGenerator.ip(:ipv4), :last_seen_ip, params),
+            last_credentials_request_ip <-
+              gen_param(IpGenerator.ip(:ipv4), :last_credentials_request_ip, params),
+            inhibit_credentials_request <-
+              gen_param(boolean(), :inhibit_credentials_request, params),
             {
               first_registration,
               first_credentials_request,
               last_connection,
               last_disconnection
-            } <- dates(),
-            {
-              total_received_msgs,
-              total_received_bytes,
-              interfaces_msgs,
-              interfaces_bytes
-            } <-
-              interfaces
-              |> interfaces_data()
-              |> constant(),
-            aliases <- aliases(),
-            attributes <- attributes() do
+            } <- dates(params),
+            interfaces <-
+              gen_param(
+                uniq_list_of(InterfaceGenerator.interface(),
+                  uniq_fun: &{&1.name, &1.major_version}
+                ),
+                :interfaces,
+                params
+              ),
+            interfaces_msgs <- gen_param(interfaces_msgs(interfaces), :interfaces_msgs, params),
+            interfaces_bytes <-
+              gen_param(interfaces_bytes(interfaces), :interfaces_bytes, params),
+            aliases <- gen_param(aliases(), :aliases, params),
+            attributes <- gen_param(attributes(), :attributes, params) do
+      total_received_msgs = interfaces_msgs |> Map.values() |> Enum.sum()
+      total_received_bytes = interfaces_bytes |> Map.values() |> Enum.sum()
+
       %{
         id: id,
         device_id: id,
@@ -102,32 +112,20 @@ defmodule Astarte.Core.Generators.Device do
   end
 
   # Interface utility functions
-  defp interface_row(%Interface{name: name}), do: {name, 0..1 |> Enum.random()}
-  defp interface_map([]), do: {0, 0, nil, nil}
-  defp interface_map([], acc), do: acc
+  defp interface_key(interface), do: {interface.name, interface.major_version}
 
-  defp interface_map([key | tail], {total_msgs, total_bytes, msgs, bytes}) do
-    m = Enum.random(1..10_000)
-    b = Enum.random(10..10_000)
-
-    acc = {
-      total_msgs + m,
-      total_bytes + b,
-      Map.merge(msgs, %{key => m}),
-      Map.merge(bytes, %{key => b})
-    }
-
-    interface_map(tail, acc)
+  defp interfaces_msgs(interfaces) do
+    interfaces
+    |> Enum.map(&interface_key/1)
+    |> Map.new(&{&1, integer(1..10_000)})
+    |> fixed_map()
   end
 
-  defp interfaces_data([]), do: interface_map([])
-  defp interfaces_data(%Interface{} = interface), do: interfaces_data([interface])
-
-  defp interfaces_data(interfaces) when is_list(interfaces) do
+  defp interfaces_bytes(interfaces) do
     interfaces
-    |> Stream.map(&interface_row/1)
-    |> Enum.uniq_by(fn {n, _} -> n end)
-    |> interface_map({0, 0, %{}, %{}})
+    |> Enum.map(&interface_key/1)
+    |> Map.new(&{&1, integer(10..10_000)})
+    |> fixed_map()
   end
 
   defp aliases do
@@ -149,17 +147,29 @@ defmodule Astarte.Core.Generators.Device do
     |> one_of()
   end
 
-  defp dates do
+  defp dates(params) do
     now = "Etc/UTC" |> DateTime.now!() |> DateTime.to_unix()
 
     gen all last_disconnection <-
-              TimestampGenerator.timestamp(max: now),
+              gen_param(TimestampGenerator.timestamp(max: now), :last_disconnection, params),
             last_connection <-
-              TimestampGenerator.timestamp(max: last_disconnection),
+              gen_param(
+                TimestampGenerator.timestamp(max: last_disconnection),
+                :last_connection,
+                params
+              ),
             first_credentials_request <-
-              TimestampGenerator.timestamp(max: last_connection),
+              gen_param(
+                TimestampGenerator.timestamp(max: last_connection),
+                :first_credentials_request,
+                params
+              ),
             first_registration <-
-              TimestampGenerator.timestamp(max: first_credentials_request) do
+              gen_param(
+                TimestampGenerator.timestamp(max: first_credentials_request),
+                :first_registration,
+                params
+              ) do
       {
         first_registration,
         first_credentials_request,
