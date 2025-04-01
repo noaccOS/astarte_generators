@@ -29,16 +29,19 @@ defmodule Astarte.Core.Generators.Interface do
   alias Astarte.Core.Interface
   alias Ecto.UUID
 
+  import ParameterizedStreams
+
   @doc """
   Generates a valid Astarte Interface.
 
   https://github.com/astarte-platform/astarte_core/blob/master/lib/astarte_core/interface.ex
   """
   @spec interface() :: StreamData.t(Interface.t())
-  def interface do
+  @spec interface(keyword()) :: StreamData.t(Interface.t())
+  def interface(params \\ []) do
     gen all(
-          required <- required_fields(),
-          optional <- optional_fields()
+          required <- required_fields(params),
+          optional <- optional_fields(params)
         ) do
       struct(Interface, Map.merge(required, optional))
     end
@@ -58,17 +61,9 @@ defmodule Astarte.Core.Generators.Interface do
     |> map(&Enum.join(&1, "."))
   end
 
-  defp versions do
-    gen all(
-          major_version <- integer(0..9),
-          minor_version <- integer(0..255)
-        ) do
-      case {major_version, minor_version} do
-        {0, 0} -> {0, 1}
-        valid -> valid
-      end
-    end
-  end
+  defp major_version, do: integer(0..9)
+  defp minor_version(0 = _major_version), do: integer(1..255)
+  defp minor_version(_major_version), do: integer(0..255)
 
   defp type, do: member_of([:datastream, :properties])
 
@@ -117,30 +112,32 @@ defmodule Astarte.Core.Generators.Interface do
     end
   end
 
-  defp required_fields do
+  defp required_fields(params) do
     gen all(
-          id <- id(),
-          name <- name(),
-          {major_version, minor_version} <- versions(),
-          type <- type(),
-          aggregation <- aggregation(%{type: type}),
-          ownership <- ownership(),
-          prefix <- endpoint_prefix(),
-          retention <- MappingGenerator.retention(),
-          reliability <- MappingGenerator.reliability(),
-          expiry <- MappingGenerator.expiry(),
-          allow_unset <- MappingGenerator.allow_unset(),
-          explicit_timestamp <- MappingGenerator.explicit_timestamp(),
-          mappings <-
-            mappings(%{
-              aggregation: aggregation,
-              prefix: prefix,
-              retention: retention,
-              reliability: reliability,
-              expiry: expiry,
-              allow_unset: allow_unset,
-              explicit_timestamp: explicit_timestamp
-            })
+          id <- gen_param(id(), :id, params),
+          name <- gen_param(name(), :name, params),
+          major_version <- gen_param(major_version(), :major_version, params),
+          minor_version <- gen_param(minor_version(major_version), :minor_version, params),
+          type <- gen_param(type(), :type, params),
+          aggregation <- gen_param(aggregation(%{type: type}), :aggregation, params),
+          ownership <- gen_param(ownership(), :ownership, params),
+          prefix <- gen_param(endpoint_prefix(), :prefix, params),
+          retention <- gen_param(MappingGenerator.retention(), :retention, params),
+          reliability <- gen_param(MappingGenerator.reliability(), :reliability, params),
+          expiry <- gen_param(MappingGenerator.expiry(), :expiry, params),
+          allow_unset <- gen_param(MappingGenerator.allow_unset(), :allow_unset, params),
+          explicit_timestamp <-
+            gen_param(MappingGenerator.explicit_timestamp(), :explicit_timestamp, params),
+          mappings_args = %{
+            aggregation: aggregation,
+            prefix: prefix,
+            retention: retention,
+            reliability: reliability,
+            expiry: expiry,
+            allow_unset: allow_unset,
+            explicit_timestamp: explicit_timestamp
+          },
+          mappings <- gen_param(mappings(mappings_args), :mappings, params)
         ) do
       %{
         id: id,
@@ -160,10 +157,14 @@ defmodule Astarte.Core.Generators.Interface do
     end
   end
 
-  defp optional_fields do
-    optional_map(%{
-      description: description(),
-      doc: doc()
-    })
+  defp optional_fields(params) do
+    gen all description <-
+              gen_param(one_of([description(), constant(nil)]), :description, params),
+            doc <- gen_param(one_of([doc(), constant(nil)]), :doc, params) do
+      %{
+        description: description,
+        doc: doc
+      }
+    end
   end
 end
